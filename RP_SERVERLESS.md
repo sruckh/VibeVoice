@@ -1,15 +1,18 @@
 # RunPod Serverless Deployment Plan for VibeVoice
 
 ## 1. Objective
-Deploy the Microsoft VibeVoice TTS model as a serverless endpoint on RunPod. The deployment will utilize a network-attached volume (`/workspace`) to persist the model and code. The system will support audio compression (MP3/AAC) and optional cloud storage upload (S3/Backblaze) for generated audio files.
+Deploy the Microsoft VibeVoice TTS model as a serverless endpoint on RunPod. The deployment will utilize a network-attached volume (typically mounted at `/runpod-volume`) to persist the model, virtual environment, and code, ensuring fast warm starts and data persistence.
 
 ## 2. Architecture & Environment
 
 *   **Platform:** RunPod Serverless.
 *   **Base Image:** `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04` (defined in `Dockerfile`).
 *   **System Dependencies:** `ffmpeg` (installed via Dockerfile) for audio compression.
-*   **Storage:** Network Volume mounted at `/workspace`.
-*   **Working Directory:** `/workspace/VibeVoice`.
+*   **Storage:** Network Volume (`/runpod-volume`) or Ephemeral (`/workspace`).
+*   **Project Root:** `/runpod-volume/VibeVoice` (Persistent) or `/workspace/VibeVoice` (Ephemeral).
+    *   **Code:** Cloned into Project Root.
+    *   **Venv:** `.../VibeVoice/venv`.
+    *   **Cache:** `.../VibeVoice/cache`.
 
 ### Environment Variables
 The following environment variables should be configured in the RunPod Serverless settings:
@@ -26,20 +29,21 @@ The following environment variables should be configured in the RunPod Serverles
 
 A master bootstrap script (`runpod_bootstrap.sh`) will run when the container starts.
 
-1.  **Check Environment:** Verify if `/workspace/VibeVoice` exists and if a "setup_complete" marker file is present.
-2.  **Storage Cleanup:** Check the configured S3 bucket (if enabled) and delete files older than 7 days to manage storage costs.
-3.  **First-Run Installation (if marker is missing):**
-    *   **Install `sage_attn`:** Install `flash-attn` wheel explicitly.
-    *   **Clone Repository:** Clone `https://github.com/microsoft/VibeVoice.git` into `/workspace/VibeVoice`.
-    *   **Modify pyproject.toml:** Remove `torch`, `torchvision`, `torchaudio` to preserve container's PyTorch.
-    *   **Install Dependencies:** Run `pip install -e .` and install `boto3` (for S3 support).
-    *   **Model Download Note:** Automatic via Hugging Face cache in `/workspace/VibeVoice/cache`.
-    *   **Create Marker:** Create `.setup_complete`.
-4.  **Launch Handler:** Start the RunPod serverless handler.
+1.  **Volume Detection:** Checks for `/runpod-volume`. If present, sets it as the base; otherwise uses `/workspace`.
+2.  **Venv Setup:** Creates/Activates a persistent virtual environment in `.../VibeVoice/venv`.
+3.  **Storage Cleanup:** Checks the configured S3 bucket (if enabled) and deletes files older than 7 days.
+4.  **First-Run Installation (if `.setup_complete` marker is missing):**
+    *   **Install PyTorch:** Specific CUDA-optimized version.
+    *   **Install `sage_attn`:** Flash Attention wheel.
+    *   **Clone Repository:** Clones `https://github.com/sruckh/VibeVoice.git`. Uses `git init`/`reset` to handle cloning into a potentially non-empty directory.
+    *   **Modify pyproject.toml:** Removes `torch` deps to prevent overwriting.
+    *   **Install Dependencies:** Installs package and `boto3`.
+    *   **Marker:** Creates `.setup_complete`.
+5.  **Launch Handler:** Starts `handler.py` from the project root.
 
 ## 4. Serverless Handler (`handler.py`)
 
-*   **Imports:** `runpod`, `torch`, `boto3` (if available), `subprocess` (for ffmpeg), VibeVoice modules.
+*   **Imports:** `runpod`, `torch`, `boto3`, `subprocess`, VibeVoice modules.
 *   **Model Loading:** Global loading for warm starts.
 *   **Input Schema:**
     *   `text` (string): Text to be spoken.
@@ -48,14 +52,13 @@ A master bootstrap script (`runpod_bootstrap.sh`) will run when the container st
     *   `output_format` (string): `mp3`, `aac`, or `wav` (default: `mp3`).
 *   **Processing:**
     *   Run inference -> WAV numpy array.
-    *   **Compression:** Convert WAV to requested format (MP3/AAC) using `ffmpeg`.
+    *   **Compression:** Convert WAV to requested format using `ffmpeg`.
     *   **Delivery:**
-        *   If S3 env vars are set: Upload file to bucket and generate a presigned URL.
-        *   Otherwise: Return Base64 encoded audio string.
+        *   If S3 env vars set: Upload to bucket -> Presigned URL.
+        *   Else: Return Base64 string.
 *   **Output Schema:**
-    *   `audio_url` (string): Presigned URL (if S3 used).
-    *   `audio_base64` (string): Base64 audio (if S3 not used).
-    *   `metadata` (object): Generation stats.
+    *   `audio_url` (string) OR `audio_base64` (string).
+    *   `metadata` (object): Stats & info.
 
 ## 5. Todo List
 
@@ -64,6 +67,7 @@ A master bootstrap script (`runpod_bootstrap.sh`) will run when the container st
     - [x] Runtime installation logic (sage_attn, git clone, deps).
     - [x] **Update**: Add `boto3` installation.
     - [x] **Update**: Add S3 cleanup logic (delete > 7 days).
+    - [x] **Update**: Persistence logic (`/runpod-volume/VibeVoice`).
 - [x] **Create `handler.py`**:
     - [x] Basic inference logic.
     - [x] **Update**: Add `ffmpeg` compression logic.
