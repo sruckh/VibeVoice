@@ -3,14 +3,6 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-WORKSPACE_DIR="/workspace/VibeVoice"
-VENV_DIR="/workspace/venv"
-SETUP_COMPLETE_MARKER="$WORKSPACE_DIR/.setup_complete"
-#!/bin/bash
-
-# Exit immediately if a command exits with a non-zero status.
-set -e
-
 echo "Starting RunPod Bootstrap Script..."
 
 # --- Configuration & Mount Point Detection ---
