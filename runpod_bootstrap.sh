@@ -48,6 +48,7 @@ fi
 if [ ! -f "$VENV/bin/activate" ]; then
     echo "Creating virtual environment at $VENV..."
     python3 -m venv "$VENV"
+    # shellcheck source=/dev/null
     source "$VENV/bin/activate"
     pip install --upgrade pip
 
@@ -75,6 +76,7 @@ if [ ! -f "$VENV/bin/activate" ]; then
     pip install boto3
 else
     echo "Virtual environment exists. Activating..."
+    # shellcheck source=/dev/null
     source "$VENV/bin/activate"
 fi
 
